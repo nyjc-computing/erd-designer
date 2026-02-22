@@ -1,103 +1,69 @@
+import './App.css';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import ReactFlow, { 
   addEdge, Background, Controls, applyEdgeChanges, applyNodeChanges,
-  Handle, Position, EdgeLabelRenderer, BaseEdge
+  Handle, Position, EdgeLabelRenderer, BaseEdge, ReactFlowProvider, useReactFlow
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { toPng } from 'html-to-image';
 
 // --- CUSTOM NODE ---
 const EntityNode = ({ id, data, selected }) => {
-  const handleSize = 8;
   const hStyle = { 
-    width: handleSize, height: handleSize, background: '#444', 
-    border: '1px solid #fff', zIndex: 10,
+    width: 8, height: 8, background: '#444', border: '1px solid #fff', zIndex: 10,
     visibility: data.hideHandles ? 'hidden' : 'visible' 
   };
-
   return (
-    <div style={{ 
-      padding: '12px', borderRadius: '4px', border: `2px solid ${selected ? '#3b82f6' : '#1a192b'}`, 
-      background: '#fff', minWidth: '140px', minHeight: '60px',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      boxShadow: (selected && !data.hideHandles) ? '0 0 10px rgba(59, 130, 246, 0.5)' : 'none',
-    }}>
+    <div className="entity-node" style={{ border: `2px solid ${selected ? '#3b82f6' : '#1a192b'}` }}>
       <Handle type="target" position={Position.Top} id="top" style={{ ...hStyle, left: '50%' }} />
       <Handle type="source" position={Position.Bottom} id="bottom" style={{ ...hStyle, left: '50%' }} />
       <Handle type="target" position={Position.Left} id="left" style={{ ...hStyle, top: '50%' }} />
       <Handle type="source" position={Position.Right} id="right" style={{ ...hStyle, top: '50%' }} />
-      
       <input
         className="nodrag" 
         value={data.label}
         onChange={(e) => data.onChange(id, e.target.value)}
-        onKeyDown={(e) => (e.key === 'Backspace' || e.key === 'Delete') && e.stopPropagation()}
-        style={{ border: 'none', background: 'transparent', textAlign: 'center', fontWeight: 'bold', fontSize: '14px', width: '100%', outline: 'none' }}
+        style={{ border: 'none', background: 'transparent', textAlign: 'center', fontWeight: 'bold', width: '100%', outline: 'none' }}
       />
     </div>
   );
 };
 
-// --- FLUSH CROW EDGE ---
+// --- CUSTOM CROW'S FOOT EDGE ---
 const CrowEdge = ({ id, sourceX, sourceY, targetX, targetY, data, selected, sourceHandleId, targetHandleId }) => {
   const edgePath = `M ${sourceX},${sourceY} L ${targetX},${targetY}`;
   const labelX = (sourceX + targetX) / 2;
   const labelY = (sourceY + targetY) / 2;
 
   const getTridentPath = (sX, sY, tX, tY, handleId) => {
-    const forkDepth = 18; 
-    const spread = 15;    
-    const borderOffset = 4; 
-
-    const dx = tX - sX;
-    const dy = tY - sY;
+    const forkDepth = 18; const spread = 15; const borderOffset = 4; 
+    const dx = tX - sX; const dy = tY - sY;
     const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    const ux = dx / dist;
-    const uy = dy / dist;
-
-    const adjTX = tX + (ux * borderOffset);
-    const adjTY = tY + (uy * borderOffset);
-
-    const forkOriginX = adjTX - ux * forkDepth;
-    const forkOriginY = adjTY - uy * forkDepth;
-
+    const ux = dx / dist; const uy = dy / dist;
+    const adjTX = tX + (ux * borderOffset); const adjTY = tY + (uy * borderOffset);
+    const forkOriginX = adjTX - ux * forkDepth; const forkOriginY = adjTY - uy * forkDepth;
     const isVerticalFace = handleId === 'top' || handleId === 'bottom';
     let p1x, p1y, p2x, p2y;
-
-    if (isVerticalFace) {
-      p1x = adjTX - spread; p1y = adjTY;
-      p2x = adjTX + spread; p2y = adjTY;
-    } else {
-      p1x = adjTX; p1y = adjTY - spread;
-      p2x = adjTX; p2y = adjTY + spread;
-    }
-
-    return `
-      M ${p1x},${p1y} L ${p2x},${p2y}
-      M ${p1x},${p1y} L ${forkOriginX},${forkOriginY}
-      M ${p2x},${p2y} L ${forkOriginX},${forkOriginY}
-      M ${adjTX},${adjTY} L ${forkOriginX},${forkOriginY}
-    `;
+    if (isVerticalFace) { p1x = adjTX - spread; p1y = adjTY; p2x = adjTX + spread; p2y = adjTY; }
+    else { p1x = adjTX; p1y = adjTY - spread; p2x = adjTX; p2y = adjTY + spread; }
+    return `M ${p1x},${p1y} L ${p2x},${p2y} M ${p1x},${p1y} L ${forkOriginX},${forkOriginY} M ${p2x},${p2y} L ${forkOriginX},${forkOriginY} M ${adjTX},${adjTY} L ${forkOriginX},${forkOriginY}`;
   };
-
-  const showTargetTrident = data?.cardinality === '1:M' || data?.cardinality === 'M:M';
-  const showSourceTrident = data?.cardinality === 'M:1' || data?.cardinality === 'M:M';
 
   return (
     <>
-      <BaseEdge id={id} path={edgePath} style={{ strokeWidth: 2, stroke: (selected && !data?.hideHandles) ? '#3b82f6' : '#333' }} />
-      {showTargetTrident && (
-        <path d={getTridentPath(sourceX, sourceY, targetX, targetY, targetHandleId)} fill="none" stroke={(selected && !data?.hideHandles) ? '#3b82f6' : '#333'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <BaseEdge id={id} path={edgePath} style={{ strokeWidth: 2, stroke: selected ? '#3b82f6' : '#333' }} />
+      {(data?.cardinality === '1:M' || data?.cardinality === 'M:M') && (
+        <path d={getTridentPath(sourceX, sourceY, targetX, targetY, targetHandleId)} fill="none" stroke={selected ? '#3b82f6' : '#333'} strokeWidth={2} />
       )}
-      {showSourceTrident && (
-        <path d={getTridentPath(targetX, targetY, sourceX, sourceY, sourceHandleId)} fill="none" stroke={(selected && !data?.hideHandles) ? '#3b82f6' : '#333'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      {(data?.cardinality === 'M:1' || data?.cardinality === 'M:M') && (
+        <path d={getTridentPath(targetX, targetY, sourceX, sourceY, sourceHandleId)} fill="none" stroke={selected ? '#3b82f6' : '#333'} strokeWidth={2} />
       )}
       <EdgeLabelRenderer>
-        <div style={{
-            position: 'absolute', transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-            background: '#fff', padding: '2px 8px', borderRadius: '4px', border: '1px solid #3b82f6',
-            fontSize: '11px', fontWeight: 'bold', pointerEvents: 'none', zIndex: 10
-          }}>
+        <div style={{ 
+          position: 'absolute', transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+          background: '#ffffff', color: '#000000', padding: '2px 6px', borderRadius: '4px', border: '1.5px solid #1a192b',
+          fontSize: '11px', fontWeight: 'bold', zIndex: 1000, pointerEvents: 'all' 
+        }}>
           {data?.cardinality || '1:1'}
         </div>
       </EdgeLabelRenderer>
@@ -108,180 +74,175 @@ const CrowEdge = ({ id, sourceX, sourceY, targetX, targetY, data, selected, sour
 const nodeTypes = { entity: EntityNode };
 const edgeTypes = { crow: CrowEdge };
 
-export default function ERDApp() {
+function ERDDesigner() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+  const [businessContext, setBusinessContext] = useState("");
+  const [notes, setNotes] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [generatedPrompt, setGeneratedPrompt] = useState("");
+  const [theme, setTheme] = useState('light');
+  const [currentFileName, setCurrentFileName] = useState("my-diagram");
+  
   const fileInputRef = useRef(null);
+  const { fitView, screenToFlowPosition } = useReactFlow();
 
   const onNodeLabelChange = useCallback((id, newLabel) => {
     setNodes((nds) => nds.map((node) => node.id === id ? { ...node, data: { ...node.data, label: newLabel } } : node));
   }, []);
 
+  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT') return;
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (!selectedId) return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        if (selectedId) {
+          const nodeToCopy = nodes.find(n => n.id === selectedId);
+          if (nodeToCopy) {
+            const newId = `n${Date.now()}`;
+            const newNode = { 
+              ...nodeToCopy, 
+              id: newId, 
+              selected: true, 
+              position: { x: nodeToCopy.position.x + 30, y: nodeToCopy.position.y + 30 }, 
+              data: { ...nodeToCopy.data, onChange: onNodeLabelChange } 
+            };
+            setNodes((nds) => nds.map(n => ({ ...n, selected: false })).concat(newNode));
+            setSelectedId(newId);
+          }
+        }
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
         setNodes((nds) => nds.filter((n) => n.id !== selectedId));
         setEdges((eds) => eds.filter((ed) => ed.id !== selectedId && ed.source !== selectedId && ed.target !== selectedId));
         setSelectedId(null);
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
-        e.preventDefault();
-        const nodeToCopy = nodes.find(n => n.id === selectedId);
-        if (nodeToCopy) {
-          const newNode = { ...nodeToCopy, id: `e_${Date.now()}`, position: { x: nodeToCopy.position.x + 40, y: nodeToCopy.position.y + 40 }, selected: false };
-          setNodes((nds) => [...nds, newNode]);
-        }
-      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, nodes]);
+  }, [selectedId, nodes, onNodeLabelChange]);
 
-  const handleCardinalityChange = (value) => {
-    setEdges((eds) => eds.map((e) => e.id === selectedId ? { ...e, data: { ...e.data, cardinality: value } } : e));
+  const onConnect = useCallback((p) => setEdges((eds) => addEdge({ ...p, id: `e${Date.now()}`, type: 'crow', data: { cardinality: '1:1' } }, eds)), []);
+
+  const addEntityAtCenter = () => {
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+    const position = screenToFlowPosition({ x: centerX, y: centerY });
+
+    const newNode = {
+      id: `n${Date.now()}`,
+      type: 'entity',
+      data: { label: 'New Entity', onChange: onNodeLabelChange },
+      position: { x: position.x - 50, y: position.y - 20 }
+    };
+    setNodes((nds) => [...nds, newNode]);
   };
 
-  const onConnect = useCallback((params) => {
-    const newEdge = { ...params, id: `edge_${Date.now()}`, type: 'crow', data: { cardinality: '1:1' } };
-    setEdges((eds) => addEdge(newEdge, eds));
-  }, []);
-
-  const toggleHandles = (hide) => {
-    setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, hideHandles: hide } })));
-    setEdges((eds) => eds.map((e) => ({ ...e, data: { ...e.data, hideHandles: hide } })));
-  };
-
-  // --- NEW: CLEAR ALL FUNCTION ---
-  const clearAll = () => {
-    if (window.confirm("Are you sure you want to clear the entire canvas? This action cannot be undone.")) {
-      setNodes([]);
-      setEdges([]);
-      setSelectedId(null);
-    }
-  };
-
-  const saveProject = async () => {
-    const projectName = window.prompt("Enter project name:", "my-diagram");
-    if (!projectName) return;
-
-    toggleHandles(true);
-    
-    setTimeout(() => {
-      const blob = new Blob([JSON.stringify({ nodes, edges })], { type: 'application/json' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `${projectName}.erd`;
-      link.click();
-      toggleHandles(false); 
-    }, 50);
+  const saveProject = () => {
+    const name = window.prompt("Project Name:", currentFileName);
+    if (!name) return;
+    setCurrentFileName(name);
+    const blob = new Blob([JSON.stringify({ nodes, edges, businessContext, notes })], { type: 'application/json' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${name}.erd`; link.click();
   };
 
   const openProject = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const file = e.target.files[0]; if (!file) return;
+    setCurrentFileName(file.name.replace(/\.[^/.]+$/, ""));
     const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target.result);
-        const nodesWithHandlers = data.nodes.map(n => ({
-          ...n,
-          data: { 
-            ...n.data, 
-            onChange: onNodeLabelChange,
-            hideHandles: false 
-          }
-        }));
-        setNodes(nodesWithHandlers);
-        setEdges(data.edges || []);
-      } catch (err) {
-        console.error("Failed to parse project file:", err);
-        alert("Invalid project file format.");
-      }
+    reader.onload = (ev) => {
+      const d = JSON.parse(ev.target.result);
+      setNodes(d.nodes.map(n => ({ ...n, data: { ...n.data, onChange: onNodeLabelChange, hideHandles: false }})));
+      setEdges(d.edges || []); setBusinessContext(d.businessContext || ""); setNotes(d.notes || "");
     };
-    reader.readAsText(file);
-    e.target.value = null;
+    reader.readAsText(file); e.target.value = null;
   };
 
   const exportImage = () => {
-    const fileName = window.prompt("Enter image file name:", "erd-diagram");
-    if (!fileName) return;
-
-    toggleHandles(true);
-
+    const fn = window.prompt("Enter PNG filename:", currentFileName); if (!fn) return;
+    setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, hideHandles: true }})));
     setTimeout(() => {
-      const element = document.querySelector('.react-flow__viewport');
-      toPng(element, {
-        backgroundColor: '#ffffff',
-        quality: 1,
-        cacheBust: true,
-      }).then((url) => {
-        const a = document.createElement('a');
-        a.download = `${fileName}.png`;
-        a.href = url;
-        a.click();
-        toggleHandles(false);
+      toPng(document.querySelector('.react-flow__viewport'), { backgroundColor: '#ffffff', quality: 1 }).then((url) => {
+        const a = document.createElement('a'); a.download = `${fn}.png`; a.href = url; a.click();
+        setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, hideHandles: false }})));
       });
-    }, 100);
+    }, 150);
+  };
+
+  const clearCanvasOnly = () => { if (window.confirm("Clear only drawing?")) { setNodes([]); setEdges([]); } };
+  const clearAll = () => { if (window.confirm("Clear EVERYTHING?")) { setNodes([]); setEdges([]); setBusinessContext(""); setNotes(""); setCurrentFileName("my-diagram"); } };
+
+  const runAiAudit = () => {
+    if (!businessContext.trim()) return alert("Enter business context!");
+    const p = `ROLE: Senior Database Architect\nCONTEXT: ${businessContext}\nDIAGRAM:\n${JSON.stringify({ entities: nodes.map(n => n.data.label), relationships: edges.map(e => ({ from: nodes.find(n => n.id === e.source)?.data.label, to: nodes.find(n => n.id === e.target)?.data.label, type: e.data.cardinality })) }, null, 2)}\nTASK: Verify if diagram matches Context. STRICT CONSTRAINTS: 1. No new entities. 2. No attributes/fields. 3. Only evaluate relationships. 4. Concise bullet points (under 150 words).`;
+    setGeneratedPrompt(p); setIsModalOpen(true);
   };
 
   const currentEdge = edges.find(e => e.id === selectedId);
 
   return (
-    <div style={{ width: '100vw', height: '100vh', display: 'flex', fontFamily: 'sans-serif' }}>
-      <div style={{ width: '250px', padding: '20px', background: '#f8fafc', borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <h3>ERD Designer</h3>
-        <button onClick={() => setNodes(n => [...n, { id: `e_${Date.now()}`, type: 'entity', data: { label: 'New Entity', onChange: onNodeLabelChange, hideHandles: false }, position: { x: 100, y: 100 } }])} style={btnStyle('#2563eb')}>+ Add Entity</button>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-          <button onClick={saveProject} style={btnStyle('#64748b')}>Save Project</button>
-          <button onClick={() => fileInputRef.current.click()} style={btnStyle('#64748b')}>Open Project</button>
+    <div className="app-container">
+      <div className="sidebar">
+        <div className="sidebar-header">
+          <h3>ERD Designer</h3>
+          <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="theme-toggle">
+            {theme === 'light' ? '🌙' : '☀️'}
+          </button>
+        </div>
+        <button className="btn btn-primary" onClick={addEntityAtCenter}>+ Add Entity</button>
+        <div className="btn-grid">
+          <button className="btn btn-secondary" onClick={saveProject}>Save Project</button>
+          <button className="btn btn-secondary" onClick={() => fileInputRef.current.click()}>Open Project</button>
         </div>
         <input type="file" ref={fileInputRef} onChange={openProject} style={{ display: 'none' }} accept=".erd" />
-        
-        <button onClick={exportImage} style={btnStyle('#10b981')}>Export PNG</button>
-        
-        {/* CLEAR ALL BUTTON */}
-        <button onClick={clearAll} style={btnStyle('#ef4444', '10px 0 0 0')}>Clear All</button>
-
+        <button className="btn btn-info" onClick={() => { navigator.clipboard.writeText(JSON.stringify({ nodes, edges }, null, 2)); alert("Copied!"); }}>Copy Schema</button>
+        <button className="btn btn-success" onClick={exportImage}>Export PNG</button>
+        <button className="btn btn-purple" onClick={() => fitView({ padding: 0.2, duration: 800 })}>Zoom to Fit</button>
+        <div className="btn-grid">
+          <button className="btn btn-danger" onClick={clearCanvasOnly}>Clear Canvas</button>
+          <button className="btn btn-danger btn-clear-all" onClick={clearAll}>Clear All</button>
+        </div>
+        <hr />
+        <label>Business Context</label>
+        <textarea value={businessContext} onChange={(e) => setBusinessContext(e.target.value)} placeholder="System rules..." style={{height: '80px'}} />
+        <button className="btn btn-ai" onClick={runAiAudit}>✨ AI Audit</button>
+        <div className="notes-area">
+          <label>Design Notes</label>
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Store AI feedback here..." />
+        </div>
         {currentEdge && (
-          <div style={{ marginTop: '20px', padding: '10px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px' }}>
-             <label style={{ fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Cardinality</label>
-             <select style={{ width: '100%', padding: '8px' }} onChange={(e) => handleCardinalityChange(e.target.value)} value={currentEdge.data?.cardinality || '1:1'}>
-               <option value="1:1">1:1</option>
-               <option value="1:M">1:M</option>
-               <option value="M:1">M:1</option>
-               <option value="M:M">M:M</option>
-             </select>
+          <div style={{marginTop: '10px'}}>
+            <label>Cardinality</label>
+            <select value={currentEdge.data?.cardinality || '1:1'} onChange={(e) => setEdges(eds => eds.map(ed => ed.id === selectedId ? { ...ed, data: { ...ed.data, cardinality: e.target.value } } : ed))}>
+              <option value="1:1">1:1</option><option value="1:M">1:M</option><option value="M:1">M:1</option><option value="M:M">M:M</option>
+            </select>
           </div>
         )}
       </div>
-      <div style={{ flexGrow: 1 }}>
-        <ReactFlow
-          nodes={nodes} edges={edges}
-          onNodesChange={(chs) => setNodes((nds) => applyNodeChanges(chs, nds))}
-          onEdgesChange={(chs) => setEdges((eds) => applyEdgeChanges(chs, eds))}
-          onConnect={onConnect}
-          onSelectionChange={({ nodes, edges }) => setSelectedId(edges[0]?.id || nodes[0]?.id || null)}
-          nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView
-        >
-          <Background color="#aaa" gap={20} />
+      <div className="canvas-container">
+        <ReactFlow nodes={nodes} edges={edges} onNodesChange={nds => setNodes(applyNodeChanges(nds, nodes))} onEdgesChange={eds => setEdges(applyEdgeChanges(eds, edges))} onConnect={onConnect} onSelectionChange={({ nodes, edges }) => setSelectedId(edges[0]?.id || nodes[0]?.id || null)} nodeTypes={nodeTypes} edgeTypes={edgeTypes} snapToGrid snapGrid={[20, 20]} fitView>
+          <Background color={theme === 'dark' ? '#334155' : '#cbd5e1'} variant="dots" />
           <Controls />
         </ReactFlow>
+        {isModalOpen && (
+          <div className="modal-overlay">
+            <div className="modal-content">
+              <h3>Master Audit Prompt</h3>
+              <div className="prompt-preview">{generatedPrompt}</div>
+              <div className="btn-grid">
+                <button className="btn btn-primary" onClick={() => { navigator.clipboard.writeText(generatedPrompt); alert("Copied!"); }}>Copy Prompt</button>
+                <button className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-const btnStyle = (bg, margin = '0') => ({ 
-  padding: '10px', 
-  background: bg, 
-  color: 'white', 
-  border: 'none', 
-  borderRadius: '4px', 
-  cursor: 'pointer', 
-  fontWeight: 'bold',
-  marginTop: margin.split(' ')[0] // Simple margin-top support
-});
+export default function App() { return <ReactFlowProvider><ERDDesigner /></ReactFlowProvider>; }

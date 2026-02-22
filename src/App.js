@@ -7,7 +7,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { toPng } from 'html-to-image';
 
-// --- CUSTOM NODE ---
+// --- CUSTOM ENTITY NODE ---
 const EntityNode = ({ id, data, selected }) => {
   const hStyle = { 
     width: 8, height: 8, background: '#444', border: '1px solid #fff', zIndex: 10,
@@ -31,9 +31,18 @@ const EntityNode = ({ id, data, selected }) => {
 
 // --- CUSTOM CROW'S FOOT EDGE ---
 const CrowEdge = ({ id, sourceX, sourceY, targetX, targetY, data, selected, sourceHandleId, targetHandleId }) => {
+  const { setEdges } = useReactFlow();
   const edgePath = `M ${sourceX},${sourceY} L ${targetX},${targetY}`;
   const labelX = (sourceX + targetX) / 2;
   const labelY = (sourceY + targetY) / 2;
+
+  const onLabelClick = (e) => {
+    e.stopPropagation();
+    const types = ['1:1', '1:M', 'M:1', 'M:M'];
+    const current = data?.cardinality || '1:1';
+    const next = types[(types.indexOf(current) + 1) % types.length];
+    setEdges((eds) => eds.map((edge) => edge.id === id ? { ...edge, data: { ...edge.data, cardinality: next } } : edge));
+  };
 
   const getTridentPath = (sX, sY, tX, tY, handleId) => {
     const forkDepth = 18; const spread = 15; const borderOffset = 4; 
@@ -59,11 +68,8 @@ const CrowEdge = ({ id, sourceX, sourceY, targetX, targetY, data, selected, sour
         <path d={getTridentPath(targetX, targetY, sourceX, sourceY, sourceHandleId)} fill="none" stroke={selected ? '#3b82f6' : '#333'} strokeWidth={2} />
       )}
       <EdgeLabelRenderer>
-        <div style={{ 
-          position: 'absolute', transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-          background: '#ffffff', color: '#000000', padding: '2px 6px', borderRadius: '4px', border: '1.5px solid #1a192b',
-          fontSize: '11px', fontWeight: 'bold', zIndex: 1000, pointerEvents: 'all' 
-        }}>
+        <div onClick={onLabelClick} className="edge-label-interactive nodrag nopan"
+          style={{ position: 'absolute', left: labelX, top: labelY, transform: `translate(-50%, -50%)`, pointerEvents: 'all' }}>
           {data?.cardinality || '1:1'}
         </div>
       </EdgeLabelRenderer>
@@ -77,93 +83,133 @@ const edgeTypes = { crow: CrowEdge };
 function ERDDesigner() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [history, setHistory] = useState([]);
   const [businessContext, setBusinessContext] = useState("");
   const [notes, setNotes] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [generatedPrompt, setGeneratedPrompt] = useState("");
   const [theme, setTheme] = useState('light');
   const [currentFileName, setCurrentFileName] = useState("my-diagram");
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [generatedPrompt, setGeneratedPrompt] = useState("");
+  const [selectedId, setSelectedId] = useState(null);
+  const [fileHandle, setFileHandle] = useState(null);
   
   const fileInputRef = useRef(null);
   const { fitView, screenToFlowPosition } = useReactFlow();
+
+  const takeSnapshot = useCallback(() => {
+    setHistory(prev => [...prev.slice(-29), { 
+      nodes, edges, businessContext, notes, fileHandle, currentFileName 
+    }]);
+  }, [nodes, edges, businessContext, notes, fileHandle, currentFileName]);
 
   const onNodeLabelChange = useCallback((id, newLabel) => {
     setNodes((nds) => nds.map((node) => node.id === id ? { ...node, data: { ...node.data, label: newLabel } } : node));
   }, []);
 
+  const undo = useCallback(() => {
+    if (history.length === 0) return;
+    const lastState = history[history.length - 1];
+    setHistory(prev => prev.slice(0, -1));
+    setNodes(lastState.nodes);
+    setEdges(lastState.edges);
+    setBusinessContext(lastState.businessContext);
+    setNotes(lastState.notes);
+    setFileHandle(lastState.fileHandle || null);
+    setCurrentFileName(lastState.currentFileName || "my-diagram");
+  }, [history]);
+
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
+
+  const duplicateNode = useCallback(() => {
+    if (!selectedId) return;
+    const nodeToCopy = nodes.find(n => n.id === selectedId);
+    if (!nodeToCopy) return;
+    takeSnapshot();
+    const newId = `n${Date.now()}`;
+    const newNode = {
+      ...nodeToCopy,
+      id: newId,
+      position: { x: nodeToCopy.position.x + 40, y: nodeToCopy.position.y + 40 },
+      selected: true,
+      data: { ...nodeToCopy.data, onChange: onNodeLabelChange }
+    };
+    setNodes((nds) => nds.map(n => ({ ...n, selected: false })).concat(newNode));
+    setSelectedId(newId);
+  }, [selectedId, nodes, takeSnapshot, onNodeLabelChange]);
+
+  const deleteSelected = useCallback(() => {
+    if (!selectedId) return;
+    takeSnapshot();
+    setNodes((nds) => nds.filter((n) => n.id !== selectedId));
+    setEdges((eds) => eds.filter((ed) => ed.id !== selectedId && ed.source !== selectedId && ed.target !== selectedId));
+    setSelectedId(null);
+  }, [selectedId, takeSnapshot]);
+
+  const saveProject = useCallback(async () => {
+    const projectData = JSON.stringify({ nodes, edges, businessContext, notes }, null, 2);
+    if (fileHandle) {
+      const confirmSave = window.confirm(`Overwrite existing file "${currentFileName}.erd"?`);
+      if (confirmSave) {
+        try {
+          const writable = await fileHandle.createWritable();
+          await writable.write(projectData);
+          await writable.close();
+          return;
+        } catch (err) { console.error("Write permission denied."); }
+      }
+    }
+    const name = window.prompt("Project Name:", currentFileName);
+    if (!name) return;
+    setCurrentFileName(name);
+    const blob = new Blob([projectData], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${name}.erd`;
+    link.click();
+  }, [nodes, edges, businessContext, notes, fileHandle, currentFileName]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      
-      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
-        e.preventDefault();
-        if (selectedId) {
-          const nodeToCopy = nodes.find(n => n.id === selectedId);
-          if (nodeToCopy) {
-            const newId = `n${Date.now()}`;
-            const newNode = { 
-              ...nodeToCopy, 
-              id: newId, 
-              selected: true, 
-              position: { x: nodeToCopy.position.x + 30, y: nodeToCopy.position.y + 30 }, 
-              data: { ...nodeToCopy.data, onChange: onNodeLabelChange } 
-            };
-            setNodes((nds) => nds.map(n => ({ ...n, selected: false })).concat(newNode));
-            setSelectedId(newId);
-          }
-        }
-      }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
-        setNodes((nds) => nds.filter((n) => n.id !== selectedId));
-        setEdges((eds) => eds.filter((ed) => ed.id !== selectedId && ed.source !== selectedId && ed.target !== selectedId));
-        setSelectedId(null);
-      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveProject(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); duplicateNode(); }
+      if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, nodes, onNodeLabelChange]);
+  }, [undo, duplicateNode, deleteSelected, saveProject]);
 
-  const onConnect = useCallback((p) => setEdges((eds) => addEdge({ ...p, id: `e${Date.now()}`, type: 'crow', data: { cardinality: '1:1' } }, eds)), []);
-
-  const addEntityAtCenter = () => {
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
-    const position = screenToFlowPosition({ x: centerX, y: centerY });
-
-    const newNode = {
-      id: `n${Date.now()}`,
-      type: 'entity',
-      data: { label: 'New Entity', onChange: onNodeLabelChange },
-      position: { x: position.x - 50, y: position.y - 20 }
-    };
-    setNodes((nds) => [...nds, newNode]);
+  const loadProjectIntoState = (d) => {
+    setHistory([]);
+    setNodes(d.nodes.map(n => ({ ...n, data: { ...n.data, onChange: onNodeLabelChange }})));
+    setEdges(d.edges || []);
+    setBusinessContext(d.businessContext || "");
+    setNotes(d.notes || "");
+    setTimeout(() => fitView({ padding: 0.2, duration: 800 }), 100);
   };
 
-  const saveProject = () => {
-    const name = window.prompt("Project Name:", currentFileName);
-    if (!name) return;
-    setCurrentFileName(name);
-    const blob = new Blob([JSON.stringify({ nodes, edges, businessContext, notes })], { type: 'application/json' });
-    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${name}.erd`; link.click();
-  };
-
-  const openProject = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    setCurrentFileName(file.name.replace(/\.[^/.]+$/, ""));
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const d = JSON.parse(ev.target.result);
-      setNodes(d.nodes.map(n => ({ ...n, data: { ...n.data, onChange: onNodeLabelChange, hideHandles: false }})));
-      setEdges(d.edges || []); setBusinessContext(d.businessContext || ""); setNotes(d.notes || "");
-    };
-    reader.readAsText(file); e.target.value = null;
+  const openProject = async () => {
+    if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          types: [{ description: 'ERD Project', accept: { 'application/json': ['.erd'] } }],
+        });
+        const file = await handle.getFile();
+        const content = await file.text();
+        setFileHandle(handle);
+        setCurrentFileName(file.name.replace(/\.[^/.]+$/, ""));
+        loadProjectIntoState(JSON.parse(content));
+      } catch (err) { console.log("Picker cancelled"); }
+    } else {
+      fileInputRef.current.click();
+    }
   };
 
   const exportImage = () => {
-    const fn = window.prompt("Enter PNG filename:", currentFileName); if (!fn) return;
+    const fn = window.prompt("Enter PNG filename:", currentFileName); 
+    if (!fn) return;
     setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, hideHandles: true }})));
     setTimeout(() => {
       toPng(document.querySelector('.react-flow__viewport'), { backgroundColor: '#ffffff', quality: 1 }).then((url) => {
@@ -173,61 +219,96 @@ function ERDDesigner() {
     }, 150);
   };
 
-  const clearCanvasOnly = () => { if (window.confirm("Clear only drawing?")) { setNodes([]); setEdges([]); } };
-  const clearAll = () => { if (window.confirm("Clear EVERYTHING?")) { setNodes([]); setEdges([]); setBusinessContext(""); setNotes(""); setCurrentFileName("my-diagram"); } };
+  const addEntityAtCenter = useCallback(() => {
+    takeSnapshot();
+    const position = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    const newNode = {
+      id: `n${Date.now()}`,
+      type: 'entity',
+      position: { x: position.x - 60, y: position.y - 20 },
+      data: { label: 'New Entity', onChange: onNodeLabelChange },
+    };
+    setNodes((nds) => nds.concat(newNode));
+  }, [screenToFlowPosition, takeSnapshot, onNodeLabelChange]);
 
-  const runAiAudit = () => {
-    if (!businessContext.trim()) return alert("Enter business context!");
-    const p = `ROLE: Senior Database Architect\nCONTEXT: ${businessContext}\nDIAGRAM:\n${JSON.stringify({ entities: nodes.map(n => n.data.label), relationships: edges.map(e => ({ from: nodes.find(n => n.id === e.source)?.data.label, to: nodes.find(n => n.id === e.target)?.data.label, type: e.data.cardinality })) }, null, 2)}\nTASK: Verify if diagram matches Context. STRICT CONSTRAINTS: 1. No new entities. 2. No attributes/fields. 3. Only evaluate relationships. 4. Concise bullet points (under 150 words).`;
-    setGeneratedPrompt(p); setIsModalOpen(true);
-  };
-
-  const currentEdge = edges.find(e => e.id === selectedId);
+  const onConnect = useCallback((p) => {
+    takeSnapshot();
+    setEdges((eds) => addEdge({ ...p, id: `e${Date.now()}`, type: 'crow', data: { cardinality: '1:1' } }, eds));
+  }, [takeSnapshot]);
 
   return (
     <div className="app-container">
-      <div className="sidebar">
+      <div className={`sidebar ${sidebarVisible ? '' : 'collapsed'}`}>
         <div className="sidebar-header">
           <h3>ERD Designer</h3>
-          <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="theme-toggle">
-            {theme === 'light' ? '🌙' : '☀️'}
-          </button>
+          <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="theme-toggle">{theme === 'light' ? '🌙' : '☀️'}</button>
         </div>
-        <button className="btn btn-primary" onClick={addEntityAtCenter}>+ Add Entity</button>
-        <div className="btn-grid">
-          <button className="btn btn-secondary" onClick={saveProject}>Save Project</button>
-          <button className="btn btn-secondary" onClick={() => fileInputRef.current.click()}>Open Project</button>
-        </div>
-        <input type="file" ref={fileInputRef} onChange={openProject} style={{ display: 'none' }} accept=".erd" />
-        <button className="btn btn-info" onClick={() => { navigator.clipboard.writeText(JSON.stringify({ nodes, edges }, null, 2)); alert("Copied!"); }}>Copy Schema</button>
-        <button className="btn btn-success" onClick={exportImage}>Export PNG</button>
-        <button className="btn btn-purple" onClick={() => fitView({ padding: 0.2, duration: 800 })}>Zoom to Fit</button>
-        <div className="btn-grid">
-          <button className="btn btn-danger" onClick={clearCanvasOnly}>Clear Canvas</button>
-          <button className="btn btn-danger btn-clear-all" onClick={clearAll}>Clear All</button>
-        </div>
-        <hr />
-        <label>Business Context</label>
-        <textarea value={businessContext} onChange={(e) => setBusinessContext(e.target.value)} placeholder="System rules..." style={{height: '80px'}} />
-        <button className="btn btn-ai" onClick={runAiAudit}>✨ AI Audit</button>
-        <div className="notes-area">
-          <label>Design Notes</label>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Store AI feedback here..." />
-        </div>
-        {currentEdge && (
-          <div style={{marginTop: '10px'}}>
-            <label>Cardinality</label>
-            <select value={currentEdge.data?.cardinality || '1:1'} onChange={(e) => setEdges(eds => eds.map(ed => ed.id === selectedId ? { ...ed, data: { ...ed.data, cardinality: e.target.value } } : ed))}>
-              <option value="1:1">1:1</option><option value="1:M">1:M</option><option value="M:1">M:1</option><option value="M:M">M:M</option>
-            </select>
+        <div className="sidebar-scroll">
+          <button className="btn btn-primary" onClick={addEntityAtCenter}>+ Add Entity</button>
+          <div className="btn-grid">
+            <button className="btn btn-secondary" onClick={saveProject}>Save Project</button>
+            <button className="btn btn-secondary" onClick={openProject}>Open Project</button>
           </div>
-        )}
+          <input type="file" ref={fileInputRef} style={{ display: 'none' }} accept=".erd" onChange={(e) => {
+            const file = e.target.files[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (ev) => {
+                setCurrentFileName(file.name.replace(/\.[^/.]+$/, ""));
+                loadProjectIntoState(JSON.parse(ev.target.result));
+              };
+              reader.readAsText(file);
+            }
+          }} />
+          
+          <button className="btn btn-info" onClick={() => {
+             const schema = { entities: nodes.map(n => n.data.label), relationships: edges.map(e => ({ from: nodes.find(n => n.id === e.source)?.data.label, to: nodes.find(n => n.id === e.target)?.data.label, type: e.data?.cardinality || '1:1' })) };
+             navigator.clipboard.writeText(JSON.stringify(schema, null, 2)); alert("Schema Copied!");
+          }}>Copy Schema</button>
+          
+          <button className="btn btn-success" onClick={exportImage}>Export PNG</button>
+          <button className="btn btn-purple" onClick={() => fitView({ padding: 0.2, duration: 600 })}>Zoom to Fit</button>
+          <button className="btn btn-undo" onClick={undo} disabled={history.length === 0}>↩ Undo (Ctrl+Z)</button>
+          
+          <div className="btn-grid">
+            <button className="btn btn-danger" onClick={() => { takeSnapshot(); setNodes([]); setEdges([]); }}>Clear Canvas</button>
+            <button className="btn btn-danger btn-clear-all" onClick={() => { if(window.confirm("Clear all?")) { takeSnapshot(); setNodes([]); setEdges([]); setBusinessContext(""); setNotes(""); setFileHandle(null); }}}>Clear All</button>
+          </div>
+          <hr />
+          <label>Business Context</label>
+          <textarea value={businessContext} onChange={(e) => setBusinessContext(e.target.value)} placeholder="System rules..." />
+          <button className="btn btn-ai" onClick={() => {
+            const schema = { entities: nodes.map(n => n.data.label), relationships: edges.map(e => ({ from: nodes.find(n => n.id === e.source)?.data.label, to: nodes.find(n => n.id === e.target)?.data.label, type: e.data?.cardinality || '1:1' })) };
+            setGeneratedPrompt(`ROLE: Senior Database Architect\nCONTEXT: ${businessContext}\nDIAGRAM:\n${JSON.stringify(schema, null, 2)}\nTASK: Verify if diagram matches Context.`);
+            setIsModalOpen(true);
+          }}>✨ AI Audit</button>
+          <div className="notes-area">
+            <label>Design Notes</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Design notes here..." />
+          </div>
+        </div>
       </div>
-      <div className="canvas-container">
-        <ReactFlow nodes={nodes} edges={edges} onNodesChange={nds => setNodes(applyNodeChanges(nds, nodes))} onEdgesChange={eds => setEdges(applyEdgeChanges(eds, edges))} onConnect={onConnect} onSelectionChange={({ nodes, edges }) => setSelectedId(edges[0]?.id || nodes[0]?.id || null)} nodeTypes={nodeTypes} edgeTypes={edgeTypes} snapToGrid snapGrid={[20, 20]} fitView>
+      
+      <button className="sidebar-toggle-btn" onClick={() => setSidebarVisible(!sidebarVisible)}>{sidebarVisible ? '◀' : '▶'}</button>
+
+      <div className="canvas-container" tabIndex="0">
+        <ReactFlow 
+          nodes={nodes} edges={edges} 
+          onNodesChange={nds => setNodes(applyNodeChanges(nds, nodes))} 
+          onEdgesChange={eds => setEdges(applyEdgeChanges(eds, edges))} 
+          onConnect={onConnect} 
+          nodeTypes={nodeTypes} 
+          edgeTypes={edgeTypes} 
+          snapToGrid 
+          snapGrid={[20, 20]} 
+          onSelectionChange={({ nodes }) => setSelectedId(nodes[0]?.id || null)}
+          onNodeClick={(_, node) => setSelectedId(node.id)}
+          onPaneClick={() => setSelectedId(null)}
+        >
           <Background color={theme === 'dark' ? '#334155' : '#cbd5e1'} variant="dots" />
           <Controls />
         </ReactFlow>
+
         {isModalOpen && (
           <div className="modal-overlay">
             <div className="modal-content">
