@@ -1,15 +1,15 @@
 {
   "files": {
-    "main.css": "/erd-designer/static/css/main.1e548fdc.css",
-    "main.js": "/erd-designer/static/js/main.5ace7b8c.js",
+    "main.css": "/erd-designer/static/css/main.85b46c8a.css",
+    "main.js": "/erd-designer/static/js/main.a1f41771.js",
     "static/js/453.d9a83e3d.chunk.js": "/erd-designer/static/js/453.d9a83e3d.chunk.js",
     "index.html": "/erd-designer/index.html",
-    "main.1e548fdc.css.map": "/erd-designer/static/css/main.1e548fdc.css.map",
-    "main.5ace7b8c.js.map": "/erd-designer/static/js/main.5ace7b8c.js.map",
+    "main.85b46c8a.css.map": "/erd-designer/static/css/main.85b46c8a.css.map",
+    "main.a1f41771.js.map": "/erd-designer/static/js/main.a1f41771.js.map",
     "453.d9a83e3d.chunk.js.map": "/erd-designer/static/js/453.d9a83e3d.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.1e548fdc.css",
-    "static/js/main.5ace7b8c.js"
+    "static/css/main.85b46c8a.css",
+    "static/js/main.a1f41771.js"
   ]
 }
