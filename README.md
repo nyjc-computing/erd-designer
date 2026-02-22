@@ -1,5 +1,7 @@
 # ERD Designer 📊
 
+**Live Demo:** [https://mrvsurya.github.io/erd-designer/](https://mrvsurya.github.io/erd-designer/)
+
 A specialised React-based tool for designing Entity Relationship Diagrams (ERDs) with precision and ease. This application allows modelling of database structures using professional Crow's foot notation and validation with integrated AI auditing.
 
 ## 🚀 Key Features
