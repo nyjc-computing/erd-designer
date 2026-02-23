@@ -274,12 +274,12 @@ function ERDDesigner() {
             <button className="btn btn-danger" onClick={() => { takeSnapshot(); setNodes([]); setEdges([]); }}>Clear Canvas</button>
             <button className="btn btn-danger btn-clear-all" onClick={() => { if(window.confirm("Clear all?")) { takeSnapshot(); setNodes([]); setEdges([]); setBusinessContext(""); setNotes(""); setFileHandle(null); }}}>Clear All</button>
           </div>
-          <hr />
+          
           <label>Business Context</label>
           <textarea value={businessContext} onChange={(e) => setBusinessContext(e.target.value)} placeholder="System rules..." />
           <button className="btn btn-ai" onClick={() => {
             const schema = { entities: nodes.map(n => n.data.label), relationships: edges.map(e => ({ from: nodes.find(n => n.id === e.source)?.data.label, to: nodes.find(n => n.id === e.target)?.data.label, type: e.data?.cardinality || '1:1' })) };
-            setGeneratedPrompt(`ROLE: Senior Database Architect\nCONTEXT: ${businessContext}\nDIAGRAM:\n${JSON.stringify(schema, null, 2)}\nTASK: Verify if diagram matches Context.`);
+            setGeneratedPrompt(`ROLE: Senior Database Architect\nCONTEXT: ${businessContext}\nDIAGRAM:\n${JSON.stringify(schema, null, 2)}\nTASK: Verify if diagram matches Context. STRICT CONSTRAINTS: 1. No new entities. 2. No attributes/fields. 3. Only evaluate relationships. 4. Concise bullet points (under 150 words).`);
             setIsModalOpen(true);
           }}>✨ AI Audit</button>
           <div className="notes-area">
