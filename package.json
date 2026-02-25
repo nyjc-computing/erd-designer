@@ -2,7 +2,7 @@
   "name": "erd-app-new",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://mrvsurya.github.io/erd-designer",
+  "homepage": "https://nyjc-computing.github.io/erd-designer",
   "dependencies": {
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
